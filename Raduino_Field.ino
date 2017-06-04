@@ -3,45 +3,16 @@
 
 /**
  * This source file is under General Public License version 3.
- * 
- * Most source code are meant to be understood by the compilers and the computers. 
- * Code that has to be hackable needs to be well understood and properly documented. 
- * Donald Knuth coined the term Literate Programming to indicate code that is written be 
- * easily read and understood.
- * 
- * The Raduino is a small board that includes the Arduin Nano, a 16x2 LCD display and
- * an Si5351a frequency synthesizer. This board is manufactured by Paradigm Ecomm Pvt Ltd
- * 
- * To learn more about Arduino you may visit www.arduino.cc. 
- * 
- * The Arduino works by firt executing the code in a function called setup() and then it 
- * repeatedly keeps calling loop() forever. All the initialization code is kept in setup()
- * and code to continuously sense the tuning knob, the function button, transmit/receive,
- * etc is all in the loop() function. If you wish to study the code top down, then scroll
- * to the bottom of this file and read your way up.
- * 
- * Below are the libraries to be included for building the Raduino 
- * 
- * The EEPROM library is used to store settings like the frequency memory, caliberation data, 
- * callsign etc .
  */
+
 
 #include <EEPROM.h>
-
-/** 
- *  The main chip which generates upto three oscillators of various frequencies in the
- *  Raduino is the Si5351a. To learn more about Si5351a you can download the datasheet 
- *  from www.silabs.com although, strictly speaking it is not a requirment to understand this code. 
- *  Instead, you can look up the Si5351 library written by Jason Mildrum, NT7S. You can download and 
- *  install it from https://github.com/etherkit/Si5351Arduino to complile this file.
- *  NOTE: This sketch is based on version V2 of the Si5351 library. It will not compile with V1!
- *  
- *  The Wire.h library is used to talk to the Si5351 and we also declare an instance of 
- *  Si5351 object to control the clocks.
- */
 #include <Wire.h>
 #include <si5351.h>
 Si5351 si5351;
+
+
+
 /** 
  * The Raduino board is the size of a standard 16x2 LCD panel. It has three connectors:
  * 
@@ -61,20 +32,10 @@ Si5351 si5351;
 
 #include <LiquidCrystal.h>
 LiquidCrystal lcd(8,9,10,11,12,13);
+#include <LcdBarGraph.h>
+LcdBarGraph lbg(&lcd, 10, 8, 2);  // -- creating bargraph instance, format is (&lcd, lcdNumCols, start X, start Y).
+//So (&lcd, 16, 0, 1) would set the bargraph length to 16 columns and start the bargraph at column 0 on row 1.
 
-
-
-/**
- * The Arduino, unlike C/C++ on a regular computer with gigabytes of RAM, has very little memory.
- * We have to be very careful with variables that are declared inside the functions as they are 
- * created in a memory region called the stack. The stack has just a few bytes of space on the Arduino
- * if you declare large strings inside functions, they can easily exceed the capacity of the stack
- * and mess up your programs. 
- * We circumvent this by declaring a few global buffers as  kitchen counters where we can 
- * slice and dice our strings. These strings are mostly used to control the display or handle
- * the input and output from the USB port. We must keep a count of the bytes used while reading
- * the serial port as we can easily run out of buffer space. This is done in the serial_in_count variable.
- */
 char serial_in[32], c[30], b[30], printBuff[32];
 int count = 0;
 unsigned char serial_in_count = 0;
@@ -93,7 +54,7 @@ unsigned char serial_in_count = 0;
  *      
  * Though, this can be assigned anyway, for this application of the Arduino, we will make the following
  * assignment
- * A0 will connect to the PTT line. TX= positive voltage
+ 
  * A1 is Cal Button. (Has to switch from A2 on my board, because A2 is damaged.)
  * A3 is connected to a switch that can ground this line. This will be used to lock tuning.
  * A6 is to i s connected to a voltage divider and used as a voltmeter.
@@ -101,10 +62,10 @@ unsigned char serial_in_count = 0;
  * ground and +5v lines available on the connector. This implments the tuning mechanism
  */
 
-#define VOLT_IN (A6)
+#define POWER_METER (A0)
 #define CAL_BUTTON (A1)
 #define LOCK (A3)
-#define PTT   (A0)
+#define VOLT_IN (A6)
 #define ANALOG_TUNING (A7)
 
 /** 
@@ -117,6 +78,8 @@ unsigned char serial_in_count = 0;
  *  These are not used at the moment.
  */
 
+// * 6 will connect to the PTT line. TX= positive voltage
+#define PTT   (6)
 #define TX_RX (7) // Just in case a TX output is needed.
 
 
@@ -177,12 +140,7 @@ int  old_knob = 0;
 
 long frequency, stepSize=100000;
 
-/**
- * The raduino can be booted into multiple modes:
- * MODE_NORMAL : works the radio  normally
- * MODE_CALIBRATION : used to calibrate Raduino.
- * To enter this mode, hold the function button down and power up. Tune to exactly 10 MHz on clock0 and release the function button
- */
+
  #define MODE_NORMAL (0)
  #define MODE_CALIBRATE (1)
  char mode = MODE_NORMAL;
@@ -324,6 +282,9 @@ void setFrequency(unsigned long f){
  
  */
 
+
+ 
+//TX PTT Instructions////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void checkTX(){
   
   // * inTX     : true when the radio is in transmit mode 
@@ -346,21 +307,16 @@ void checkTX(){
 }
 
 
-// Tuning Lock Instructions
+// Tuning Lock Instructions///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 void checkLOCK(){  
-  
-//  if (cwTimeout > 0)
-//    return;
-    
+     
   if (digitalRead(LOCK) == 0 && inLOCK == 0){
     inLOCK = 1;
-//    digitalWrite(TX_RX, 1);
     updateDisplay();
   }
   
   if (digitalRead(LOCK) == 1 && inLOCK == 1){
     inLOCK = 0;
-//    digitalWrite(TX_RX, 0);
     updateDisplay();
   }
 }
@@ -368,12 +324,27 @@ void checkLOCK(){
 
 
 
+//POWER_METER Instructions///////////////////////////////////////////////////////////////////////////////////////////////////////////////
+void doPOWER_METER(){
+// -- draw bar graph from the analog value reading of pin A0
+  
+  if (inTx) {  
+    lbg.drawValue(analogRead(POWER_METER), 925);
+  }
 
-// Voltmeter instructions
+  else { 
+    lcd.setCursor(8, 2);
+    lcd.print("K5JCT   ");
+    }
+}
+
+
+
+// Voltmeter instructions/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 float vin=0.0;
 float temp=0.0;
-float r1=98500.0;                       // Set the value of resister R1
-float r2=9900.0;                       // Set the value of resister R2
+float r1=98700.0;                       // Set the value of resister R1
+float r2=9890.0;                       // Set the value of resister R2
 
 
 unsigned long interval=500; // the time we need to wait
@@ -391,7 +362,7 @@ int analog_val=analogRead(VOLT_IN);      // read the value of analog pin A6 and 
 
 unsigned long currentMillis = millis(); // grab current time
  
- // check if "interval" time has passed (1000 milliseconds)
+ // check if "interval" time has passed (500 milliseconds)
  if ((unsigned long)(currentMillis - previousMillis) >= interval) {
   
   lcd.setCursor(0, 1);        // set the cursor to column 0 line 1   
@@ -420,24 +391,24 @@ void doTuning(){
  int knob = analogRead(ANALOG_TUNING)-10;
  unsigned long old_freq = frequency;
 
-  // the knob is fully on the low end, move down by 10 Khz and wait for 200 msec
+  // the knob is fully on the low end, move down by 5 Khz and wait for 200 msec
  if (knob < 10 && frequency > LOWEST_FREQ) {
-      baseTune = baseTune - 5000l;
+      baseTune = baseTune - 1000l;
       frequency = baseTune;
       setFrequency(frequency);
       printLine2((char *)"<<<<<<<<<<      ");
       updateDisplay();
       
-      delay(500);
+      delay(100);
   } 
-    // the knob is full on the high end, move up by 10 Khz and wait for 200 msec
+    // the knob is full on the high end, move up by 5 Khz and wait for 200 msec
   else if (knob > 1010 && frequency < HIGHEST_FREQ) {
-     baseTune = baseTune + 5000l; 
-     frequency = baseTune + 50000l;
+     baseTune = baseTune + 1000l; 
+     frequency = baseTune + 5000l;
      setFrequency(frequency);
      printLine2((char *)"      >>>>>>>>>>");
      updateDisplay();
-     delay(500);
+     delay(100);
   }
  // the tuning knob is at neither extremities, tune the signals as usual
   else if (knob != old_knob){
@@ -446,14 +417,14 @@ void doTuning(){
          (knob<old_knob) && ((dir_knob==0) || ((old_knob-knob) >5)) )   {
        if (knob>old_knob) {
             dir_knob=1;
-            frequency = baseTune + (50l * (knob-5));
+            frequency = baseTune + (5l * (knob-5));
        } else {
             dir_knob=0;
-            frequency = baseTune + (50l * knob);
+            frequency = baseTune + (5l * knob);
        }
        old_knob = knob;
        setFrequency(frequency);
-       printLine2((char *)"           K5JCT");
+       printLine2((char *)"                ");
        updateDisplay();
     }
   }
@@ -492,7 +463,6 @@ void setup()
 
   pinMode(CAL_BUTTON, INPUT);
   digitalWrite(CAL_BUTTON, HIGH);
-
 
   digitalWrite(TX_RX, 0);
   delay(1000);
@@ -542,6 +512,7 @@ void loop(){
 
   checkTX();
   checkLOCK();
+  doPOWER_METER();
   doVOLT();
 
   
